@@ -12,6 +12,10 @@ from aws import upload_dict
 import boto3
 
 
+session = boto3.Session(
+    profile_name="default"
+)
+
 MIGRATE = True
 logging.basicConfig(level=logging.INFO)
 
@@ -20,7 +24,7 @@ load_dotenv()
 etl_engine = connection.connect()
 denylist_engine = create_engine(os.getenv("DENYLIST_DB_CONNECTION_STRING"))
 
-s3 = boto3.resource("s3")
+s3 = session.resource("s3")
 bucket = s3.Bucket(os.getenv('S3_BUCKET'))
 
 # run migrations
