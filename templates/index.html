@@ -1,0 +1,32 @@
+{% extends 'base.html' %}
+
+{% block content %}
+<h1>Denylist Issues</h1>
+
+<p>This page summarizes the latest issues. Clicking the number shows you additional details about the issue.</p>
+
+<table class="table">
+  <thead>
+    <tr>
+      <th scope="col">#</th>
+      <th scope="col">Title</th>
+      <th scope="col">User</th>
+      <th scope="col">State</th>
+      <th scope="col">Created At</th>
+      <th scope="col"># Entries</th>
+    </tr>
+  </thead>
+  <tbody>
+    {% for issue in issues %}
+    <tr>
+      <td><a href="{{ url_for('issue', number=issue['number']) }}">{{ issue['number'] }}</a></td>
+      <td>{{ issue['title'] }}</td>
+      <td><a href="{{ url_for('user', user_id=issue['user']) }}">{{ issue['user'] }}</a></td>
+      <td>{{ issue['state'] }}</td>
+      <td>{{ issue['created_at'] }}</td>
+      <td>{{ issue['n_entries'] }}</td>
+    </tr>
+    {% endfor %}
+  </tbody>
+</table>
+{% endblock %}
