@@ -22,6 +22,8 @@ denylist_engine = create_engine(os.getenv("DENYLIST_DB_CONNECTION_STRING"))
 s3 = boto3.resource("s3")
 
 app = Dash("Helium Denylist Reports", external_stylesheets=[dbc.themes.BOOTSTRAP])
+server = app.server
+
 PAGE_SIZE = 10
 
 
@@ -311,5 +313,3 @@ def generate_pr(accepted_entries, n_clicks):
 
 
 
-if __name__ == '__main__':
-    app.run_server(debug=True)
