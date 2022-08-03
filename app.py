@@ -15,7 +15,7 @@ import json
 
 
 load_dotenv()
-px.set_mapbox_access_token(open(".mapbox_token").read())
+px.set_mapbox_access_token(os.getenv("MAPBOX_TOKEN"))
 
 denylist_engine = create_engine(os.getenv("DENYLIST_DB_CONNECTION_STRING"))
 
@@ -312,4 +312,5 @@ def generate_pr(accepted_entries, n_clicks):
         return dcc.send_data_frame(new_denylist.to_csv, "denylist.csv"), pr_message
 
 
-
+if __name__ == "__main__":
+    app.run_server(debug=False, host='0.0.0.0', port=8050)
