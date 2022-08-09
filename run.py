@@ -70,12 +70,14 @@ def generate_reports(etl_engine: Engine, denylist_engine: Engine):
             witnessed_makers = get_witnessed_makers(etl_engine, address, max_block=max_block)
             hotspot_details = get_hotspot_details(etl_engine, address)
             witness_graph = get_witness_graph(etl_engine, address, max_block=max_block)
+            rssi_vs_snr = get_rssi_vs_snr(etl_engine, address, max_block=max_block)
 
             # upload to S3
             upload_dict(bucket, distance_vs_rssi, f"issues/{issue}/entries/{address}/distance_vs_rssi")
             upload_dict(bucket, witnessed_makers, f"issues/{issue}/entries/{address}/witnessed_makers")
             upload_dict(bucket, hotspot_details, f"issues/{issue}/entries/{address}/hotspot_details")
             upload_dict(bucket, witness_graph, f"issues/{issue}/entries/{address}/witness_graph")
+            upload_dict(bucket, rssi_vs_snr, f"issues/{issue}/entries/{address}/rssi_vs_snr")
 
             mark_entry_report_as_complete(denylist_engine, address, issue)
         mark_issue_report_as_complete(denylist_engine, issue)

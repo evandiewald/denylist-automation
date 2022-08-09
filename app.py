@@ -1,7 +1,10 @@
+import numpy as np
 import requests
 from dash import Dash, html, dcc, dash_table, Input, Output
 import plotly.express as px
 import pandas as pd
+
+import queries
 from queries import get_issues_summary, get_entries_table, get_issue_details
 import boto3
 from dotenv import load_dotenv
@@ -104,7 +107,8 @@ app.layout = html.Div(children=[
             html.Div(
                 [
                     dcc.Graph(id="distance-vs-rssi", style={"display": "inline-block"}),
-                    dcc.Graph(id="witnessed-makers", style={"display": "inline-block"})
+                    dcc.Graph(id="witnessed-makers", style={"display": "inline-block"}),
+                    dcc.Graph(id="rssi-vs-snr", style={"display": "inline-block"})
                 ]
             ),
             cyto.Cytoscape(
@@ -141,13 +145,27 @@ app.layout = html.Div(children=[
             hidden_columns=[],
             style_table={'overflowX': 'auto'}
         ),
-        dbc.Button("Download Denylist with Updates", color="danger", id="download-btn", className="d-grid gap-2 d-md-flex justify-content-md-end"),
-        dcc.Download(id="download-denylist"),
+        html.Div([
+            dbc.Button("Download Denylist with Updates", color="info", id="download-btn", className="d-grid gap-2 d-md-flex justify-content-md-end"),
+            dbc.Button("Download Additions Only", color="success", id="download-additions-btn"),
+            dbc.Button("Download Removals Only", color="danger", id="download-removals-btn"),
+            dcc.Download(id="download-denylist"),
+            dcc.Download(id="download-additions"),
+            dcc.Download(id="download-additions-pr"),
+            dcc.Download(id="download-removals"),
+            dcc.Download(id="download-removals-pr"),
+        ],
+        className="d-grid gap-2 d-md-flex justify-content-md-start"),
+
         dcc.Textarea(id="pr-message"),
         dcc.Clipboard(target_id="pr-message", title="copy")
     ],
     style={"padding-left": "5%", "padding-right": "5%"}),
 ])
+
+
+def r_squared(x, y):
+    return round(np.corrcoef(x, y)[0,1]**2, 3)
 
 
 def draw_witness_graph(witness_edges):
@@ -231,6 +249,7 @@ def select_all_entries(n_clicks, entries):
 @app.callback(
     Output(component_id="distance-vs-rssi", component_property="figure"),
     Output(component_id="witnessed-makers", component_property="figure"),
+    Output(component_id="rssi-vs-snr", component_property="figure"),
     Output(component_id="hotspot-name", component_property="children"),
     Output(component_id="explorer-links", component_property="children"),
     Output(component_id="witness-graph", component_property="elements"),
@@ -253,12 +272,19 @@ def select_entry(entries, selected_cell, page_current):
     witnessed_makers = aws.get_object(s3, os.getenv("S3_BUCKET"), key=f"issues/{issue_number}/entries/{address}/witnessed_makers")
     hotspot_details = json.dumps(aws.get_object(s3, os.getenv("S3_BUCKET"), key=f"issues/{issue_number}/entries/{address}/hotspot_details"))
     witness_graph = pd.DataFrame(aws.get_object(s3, os.getenv("S3_BUCKET"), key=f"issues/{issue_number}/entries/{address}/witness_graph"))
+    try:
+        rssi_vs_snr = aws.get_object(s3, os.getenv("S3_BUCKET"), key=f"issues/{issue_number}/entries/{address}/rssi_vs_snr")
+    except:
+        rssi_vs_snr = {"rssi": [], "snr": []}
 
-    dvr_fig = px.scatter(pd.DataFrame(distance_vs_rssi), x="distance_m", y="rssi", title="Distance vs. RSSI")
+    dvr_fig = px.scatter(pd.DataFrame(distance_vs_rssi), x="distance_m", y="rssi", trendline="ols", trendline_color_override="black",
+                         title="Distance vs. RSSI")
     wm_fig = px.pie(pd.DataFrame(witnessed_makers), names="maker", values="n_witnessed", title="Witnessed Makers")
+    rvs_fig = px.scatter(pd.DataFrame(rssi_vs_snr), x="rssi", y="snr", title="RSSI vs. SNR")
 
-    dvr_fig.update_layout(transition_duration=500)
-    wm_fig.update_layout(transition_duration=500)
+    dvr_fig.update_layout(transition_duration=50)
+    wm_fig.update_layout(transition_duration=50)
+    rvs_fig.update_layout(transition_duration=50)
 
     hotspot_link = f"https://explorer.helium.com/hotspots/{address}"
     owner_link = f"https://explorer.helium.com/accounts/{owner}"
@@ -269,7 +295,7 @@ def select_entry(entries, selected_cell, page_current):
         html.A("View Owner on Explorer", href=owner_link)
     ]
     elements = draw_witness_graph(witness_graph)
-    return dvr_fig, wm_fig, f"{hotspot_name} ({maker})", explorer_links, elements, hotspot_details
+    return dvr_fig, wm_fig, rvs_fig, f"{hotspot_name} ({maker})", explorer_links, elements, hotspot_details
 
 
 @app.callback(
@@ -309,8 +335,48 @@ def generate_pr(accepted_entries, n_clicks):
         for issue in closed_issues:
             pr_message += f"Closes #{issue}\n"
 
-        return dcc.send_data_frame(new_denylist.to_csv, "denylist.csv"), pr_message
+        return dcc.send_data_frame(new_denylist.to_csv(index=False, header=False), "denylist.csv"), pr_message
+
+
+@app.callback(
+    Output(component_id="download-additions", component_property="data"),
+    Output(component_id="download-additions-pr", component_property="data"),
+    Input(component_id="accepted-entries", component_property="data"),
+    Input(component_id="download-additions-btn", component_property="n_clicks"),
+    prevent_initial_call=True
+)
+def download_additions(accepted_entries, n_clicks):
+    if n_clicks > 0:
+        additions = [e["address"] for e in accepted_entries if e["issue_type"] == "Addition"]
+        closed_issues = set([e["issue"] for e in accepted_entries if e["issue_type"] == "Addition"])
+        pr_message = ""
+        for issue in closed_issues:
+            pr_message += f"Closes #{issue}\n"
+        additions_str = ""
+        for i, addition in enumerate(additions):
+            additions_str += addition + ",\n" if i != len(additions) - 1 else addition
+        return dcc.send_string(additions_str, "additions.csv"), dcc.send_string(pr_message, "pr-message.txt")
+
+
+@app.callback(
+    Output(component_id="download-removals", component_property="data"),
+    Output(component_id="download-removals-pr", component_property="data"),
+    Input(component_id="accepted-entries", component_property="data"),
+    Input(component_id="download-removals-btn", component_property="n_clicks"),
+    prevent_initial_call=True
+)
+def download_additions(accepted_entries, n_clicks):
+    if n_clicks > 0:
+        removals = [e["address"] for e in accepted_entries if e["issue_type"] == "Removal"]
+        closed_issues = set([e["issue"] for e in accepted_entries if e["issue_type"] == "Removal"])
+        pr_message = ""
+        for issue in closed_issues:
+            pr_message += f"Closes #{issue}\n"
+        removals_str = ""
+        for i, removal in enumerate(removals):
+            removals_str += removal + ",\n" if i != len(removals) - 1 else removal
+        return dcc.send_string(removals_str, "removals.csv"), dcc.send_string(pr_message, "pr-message.txt")
 
 
 if __name__ == "__main__":
-    app.run_server(debug=False, host='0.0.0.0', port=8050)
+    app.run_server(debug=True, host='0.0.0.0', port=8050)

@@ -421,3 +421,42 @@ def get_witness_graph(etl_engine: Engine, address: str, n_blocks: int = 43200, m
     }
     return result_dict
 
+
+def get_rssi_vs_snr(etl_engine: Engine, address: str, n_blocks: int = 43200, max_block: Optional[int] = None) -> dict:
+    max_block = max_block if max_block else 'max(height)'
+
+    sql = f"""with hashes as 
+        
+    (select transaction_hash, actor from transaction_actors where 
+    actor = '{address}' 
+    and actor_role = 'witness' 
+    and block > (select {max_block} - {n_blocks} from blocks limit 1)),
+    
+    target_transactions as 
+    (select fields, hash from transactions where 
+    (type = 'poc_receipts_v2' or type = 'poc_receipts_v1') 
+    and transactions.hash in (select transaction_hash from hashes)),
+    
+    metadata as 
+    (select 
+    
+    actor as witness,
+    fields->'path'->0->'witnesses' as w
+    from hashes
+    left join target_transactions on hashes.transaction_hash = target_transactions.hash)
+    
+    select 
+    
+    (select t -> 'signal' from jsonb_array_elements(w) as x(t) where t->>'gateway' = witness)::int as rssi,
+    (select t -> 'snr' from jsonb_array_elements(w) as x(t) where t->>'gateway' = witness)::float as snr
+    
+    from metadata;"""
+
+    with Session(etl_engine) as session:
+        res = session.execute(sql).fetchall()
+
+    result_dict = {
+        "rssi": [r[0] for r in res],
+        "snr": [r[1] for r in res]
+    }
+    return result_dict
