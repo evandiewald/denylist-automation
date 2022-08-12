@@ -5,7 +5,7 @@ import re
 from dotenv import load_dotenv
 import pandas as pd
 import requests
-from typing import Optional
+from typing import Optional, List
 
 
 load_dotenv()
@@ -143,7 +143,7 @@ def get_entries(issues: list, gateway_inventory: pd.DataFrame):
     return entries
 
 
-def get_pulls():
+def get_pulls() -> (List[dict], List[dict]):
     """
     Get PR's and parse them for the issues they mention.
     :return: The list of PR's with details and the list of linkages from pull to issue for our join table

@@ -285,7 +285,7 @@ def get_unparsed_issues(denylist_engine: Engine):
     return result_dict
 
 
-def upsert_pulls(denylist_engine: Engine, pulls: list[dict], issue_joins: list[dict]):
+def upsert_pulls(denylist_engine: Engine, pulls: List[dict], issue_joins: List[dict]):
     with Session(denylist_engine) as session:
         for pull in pulls:
             upsert_stmt = insert(Pulls).values(pull)\
