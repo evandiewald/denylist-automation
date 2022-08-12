@@ -143,7 +143,7 @@ def get_entries(issues: list, gateway_inventory: pd.DataFrame):
     return entries
 
 
-def get_pulls() -> (list[dict], list[dict]):
+def get_pulls():
     """
     Get PR's and parse them for the issues they mention.
     :return: The list of PR's with details and the list of linkages from pull to issue for our join table
