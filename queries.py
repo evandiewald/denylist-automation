@@ -1,5 +1,6 @@
 import datetime
 
+import sqlalchemy.exc
 from sqlalchemy.engine import Engine
 from sqlalchemy.orm import Session
 from dotenv import load_dotenv
@@ -44,6 +45,23 @@ def insert_records(denylist_engine: Engine, issues: list, entries: list):
             session.commit()
 
 
+def upsert_entries(denylist_engine: Engine, entries: list):
+    with Session(denylist_engine) as session:
+        for entry in entries:
+            session.execute(insert(Entries).values(entry)
+                            .on_conflict_do_update(constraint="entries_pkey", set_=entry))
+        session.commit()
+
+
+def upsert_issues(denylist_engine: Engine, issues: list):
+    with Session(denylist_engine) as session:
+        for issue in issues:
+            session.execute(insert(Issues).values(issue)
+                            .on_conflict_do_update(constraint="issues_pkey", set_=issue))
+        session.commit()
+
+
+
 def mark_entry_report_as_complete(denylist_engine: Engine, address: str, issue_number: int):
     sql = f"""update entries set reports_generated = true where address = '{address}' and issue_number = {issue_number};"""
     with Session(denylist_engine) as session:
@@ -68,22 +86,25 @@ def get_entries_for_issue(denylist_engine: Engine, issue_number: int) -> List[st
 
 def get_entries_table(denylist_engine: Engine, issue_number: Optional[int] = None) -> List[dict]:
     sql = f"""select
-    address,
-    issue_number,
-    reports_generated,
-    review_status,
-    name,
-    location,
-    owner,
-    payer,
-    maker,
-    long_country,
-    long_state,
-    long_city,
-    first_block
+    e.address,
+    e.issue_number,
+    e.reports_generated,
+    e.review_status,
+    e.name,
+    e.location,
+    e.owner,
+    e.payer,
+    e.maker,
+    e.long_country,
+    e.long_state,
+    e.long_city,
+    e.first_block,
+	(select array_agg(e2.issue_number) from entries e2 where e2.issue_number != e.issue_number and e2.address = e.address) as other_mentioned_issues,
+	(select array_agg(p.number) from pulls p join pull_issues pi on pi.pull = p.number join entries e2 on e2.issue_number = pi.issue where e2.address = e.address and p.state = 'closed') as closed_pulls,
+	(select array_agg(p.number) from pulls p join pull_issues pi on pi.pull = p.number join entries e2 on e2.issue_number = pi.issue where e2.address = e.address and p.state = 'open') as open_pulls
+
     
-    from entries {f'where issue_number = {issue_number}' if issue_number else ''};
-    """
+    from entries e {f'where e.issue_number = {issue_number}' if issue_number else ''};"""
     with Session(denylist_engine) as session:
         res = session.execute(sql).fetchall()
 
@@ -102,6 +123,9 @@ def get_entries_table(denylist_engine: Engine, issue_number: Optional[int] = Non
             "long_state": r[10],
             "long_city": r[11],
             "first_block": r[12],
+            "other_mentioned_issues": str(r[13]),
+            "closed_pulls": str(r[14]),
+            "open_pulls": str(r[15])
         } for r in res
     ]
     return result_dict
@@ -120,7 +144,9 @@ def get_issue_details(denylist_engine: Engine, issue_number: int, with_body: boo
      i.closed_at,
      i.comments,
      {'i.body,' if with_body else 'NULL,'}
-     i.reactions
+     i.reactions,
+     (select array_agg(pi.pull) from pull_issues pi join pulls p on p.number = pi.pull where p.state = 'open' and pi.issue = i.number) as open_pulls,
+     (select array_agg(pi.pull) from pull_issues pi join pulls p on p.number = pi.pull where p.state = 'closed' and pi.issue = i.number) as closed_pulls
      from issues i where number = {issue_number};"""
 
     with Session(denylist_engine) as session:
@@ -138,7 +164,9 @@ def get_issue_details(denylist_engine: Engine, issue_number: int, with_body: boo
         "closed_at": res[8].isoformat() if serializable and res[8] else res[8],
         "comments": res[9] if res[8] else "",
         "body": res[10],
-        "reactions": res[11] if res[11] else ""
+        "reactions": res[11] if res[11] else "",
+        "open_pulls": str(res[12]),
+        "closed_pulls": str(res[13])
     }
 
     return result_dict
@@ -146,7 +174,7 @@ def get_issue_details(denylist_engine: Engine, issue_number: int, with_body: boo
 
 def get_issues_without_reports(denylist_engine: Engine, since: Optional[str] = None) -> List[int]:
     sql = f"""select number from issues 
-    where reports_generated = false {f"and created_at > '{since}'" if since else ""} order by number asc;"""
+    where reports_generated is not true {f"and created_at > '{since}'" if since else ""} order by number asc;"""
     with Session(denylist_engine) as session:
         res = session.execute(sql).fetchall()
 
@@ -198,13 +226,16 @@ def get_user(denylist_engine: Engine, user_id: str) -> dict:
 
 def get_issues_summary(denylist_engine: Engine, limit: Optional[int] = 100) -> List[dict]:
     sql = f"""select
-         i.number,
-         i.title,
-         i.user,
-         i.created_at::text,
-         i.issue_type,
-         (select count(*) from entries e where e.issue_number = i.number) as n_entries
-         from issues i where reports_generated = True order by i.number desc {'limit ' + str(limit) if limit else ''};"""
+    i.number,
+    i.title,
+    i.user,
+    i.created_at::text,
+    i.issue_type,
+    (select count(*) from entries e where e.issue_number = i.number) as n_entries,
+    (select array_agg(pi.pull) from pull_issues pi join pulls p on p.number = pi.pull where p.state = 'open' and pi.issue = i.number) as open_pulls,
+    (select array_agg(pi.pull) from pull_issues pi join pulls p on p.number = pi.pull where p.state = 'closed' and pi.issue = i.number) as closed_pulls
+    
+    from issues i where reports_generated = True order by i.number desc {'limit ' + str(limit) if limit else ''};"""
 
     with Session(denylist_engine) as session:
         res = session.execute(sql).fetchall()
@@ -216,7 +247,9 @@ def get_issues_summary(denylist_engine: Engine, limit: Optional[int] = 100) -> L
             "user": r[2],
             "created_at": r[3],
             "issue_type": r[4],
-            "n_entries": r[5]
+            "n_entries": r[5],
+            "open_pulls": str(r[6]),
+            "closed_pulls": str(r[7])
         } for r in res
     ]
     return result_dict
@@ -228,6 +261,49 @@ def get_max_issue_timestamp(denylist_engine: Engine) -> datetime.datetime:
     with Session(denylist_engine) as session:
         res = session.execute(sql).one()
     return res[0]
+
+
+def get_unparsed_issues(denylist_engine: Engine):
+    sql = """with entries_per_issue as (
+    select 
+        i.number as issue,
+        count(e.address) as n_entries
+    from issues i left join entries e on i.number = e.issue_number 
+    group by issue)
+    
+    select epi.issue, i2.body from entries_per_issue epi join issues i2 on i2.number = epi.issue where n_entries = 0;"""
+
+    with Session(denylist_engine) as session:
+        res = session.execute(sql).fetchall()
+
+    result_dict = [
+        {
+            "number": r[0],
+            "body": r[1]
+        } for r in res
+    ]
+    return result_dict
+
+
+def upsert_pulls(denylist_engine: Engine, pulls: list[dict], issue_joins: list[dict]):
+    with Session(denylist_engine) as session:
+        for pull in pulls:
+            upsert_stmt = insert(Pulls).values(pull)\
+                .on_conflict_do_update(constraint="pulls_pkey", set_=pull)
+            session.execute(upsert_stmt)
+            session.commit()
+
+        for issue_join in issue_joins:
+            try:
+                upsert_stmt = insert(PullIssues).values(issue_join)\
+                    .on_conflict_do_update(constraint="pull_issues_pkey", set_=issue_join)
+                session.execute(upsert_stmt)
+                session.commit()
+            except sqlalchemy.exc.IntegrityError:
+                # edge case where issue was deleted
+                session.rollback()
+                continue
+
 
 
 def get_height_for_timestamp(etl_engine: Engine, timestamp: str) -> int:
@@ -302,21 +378,28 @@ def get_distance_vs_rssi(etl_engine: Engine, address: str, n_blocks: int = 43200
 def get_witnessed_makers(etl_engine: Engine, address: str, n_blocks: int = 43200, max_block: Optional[int] = None) -> dict:
     max_block = max_block if max_block else 'max(height)'
 
-    sql = f"""with distinct_witnessed as (
+    sql = f"""with hashes as 
+        
+    (select transaction_hash, actor from transaction_actors where 
+    actor = '{address}' 
+    and actor_role = 'witness' 
+    and block > (select {max_block} - {n_blocks} from blocks limit 1)),
     
-    select distinct transmitter_address from challenge_receipts_parsed 
-    where witness_address = '{address}' and block > (select {max_block} - {n_blocks} from blocks limit 1)
-    )
+    target_transactions as 
+    (select fields, hash from transactions where transactions.hash in (select transaction_hash from hashes)),
     
-    select 
+    metadata as 
+    (select 
+    distinct fields->'path'->0->>'challengee' as transmitter
+    from hashes
+    left join target_transactions on hashes.transaction_hash = target_transactions.hash)
     
-    m.name as maker,
+    select
+    
+    m.name as maker, 
     count(*) as n_witnessed
     
-    from distinct_witnessed dw 
-    join gateway_inventory g on dw.transmitter_address = g.address 
-    join makers m on m.address = g.payer
-    group by maker;"""
+    from metadata mt join gateway_inventory g on g.address = mt.transmitter join makers m on m.address = g.payer group by maker;"""
 
     with Session(etl_engine) as session:
         res = session.execute(sql).fetchall()

@@ -82,7 +82,7 @@ def get_issues(since: Optional[str] = None):
                     "comments": r["comments"],
                     "body": r["body"],
                     "reactions": r["reactions"],
-                    "reports_generated": False
+                    # "reports_generated": False
                 })
 
         else:
@@ -105,8 +105,8 @@ def get_entries(issues: list, gateway_inventory: pd.DataFrame):
                             entries.append({
                                 "address": a,
                                 "issue_number": issue["number"],
-                                "reports_generated": False,
-                                "review_status": "not_reviewed",
+                                # "reports_generated": False,
+                                # "review_status": "not_reviewed",
                                 "name": row["name"],
                                 "location": row["location"],
                                 "payer": row["payer"],
@@ -126,8 +126,8 @@ def get_entries(issues: list, gateway_inventory: pd.DataFrame):
                             entries.append({
                                 "address": a,
                                 "issue_number": issue["number"],
-                                "reports_generated": False,
-                                "review_status": "not_reviewed",
+                                # "reports_generated": False,
+                                # "review_status": "not_reviewed",
                                 "name": row["name"],
                                 "location": row["location"],
                                 "payer": row["payer"],
@@ -141,3 +141,52 @@ def get_entries(issues: list, gateway_inventory: pd.DataFrame):
                         except IndexError:
                             continue
     return entries
+
+
+def get_pulls() -> (list[dict], list[dict]):
+    """
+    Get PR's and parse them for the issues they mention.
+    :return: The list of PR's with details and the list of linkages from pull to issue for our join table
+    """
+    pulls = []
+    page = 1
+    while True:
+        url = f"https://api.github.com/repos/helium/denylist/pulls?state=all&page={page}&per_page=100"
+
+        payload = {}
+        headers = {"accept": "application/vnd.github+json",
+                   "Authorization": f"token {os.getenv('GITHUB_ACCESS_TOKEN')}"}
+
+        response = requests.request("GET", url, headers=headers, data=payload).json()
+        if len(response) > 0:
+            for r in response:
+
+                pulls.append({
+                    "number": r["number"],
+                    "title": r["title"],
+                    "user": r["user"]["login"],
+                    "state": r["state"],
+                    "created_at": r["created_at"],
+                    "updated_at": r["updated_at"],
+                    "closed_at": r["closed_at"],
+                    "body": r["body"],
+                })
+        else:
+            break
+        page += 1
+
+    # seeing a couple of different patterns for closures
+    p1 = re.compile(r"Closes #(\d+)")
+    p2 = re.compile(r"Closes https://github.com/helium.denylist/issues/(\d+)")
+    issue_joins = []
+    for pull in pulls:
+        b = pull["body"]
+        if b:
+            rows = b.splitlines()
+            for row in rows:
+                m1 = p1.findall(row)
+                m2 = p2.findall(row)
+                matches = m1 if len(m1) >= len(m2) else m2
+                if len(matches) > 0:
+                    issue_joins.append({"pull": pull["number"], "issue": matches[0]})
+    return pulls, issue_joins

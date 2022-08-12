@@ -45,7 +45,10 @@ entries = [
         "long_country": None,
         "long_state": None,
         "long_city": None,
-        "first_block": None
+        "first_block": None,
+        "other_mentioned_issues": None,
+        "closed_pulls": None,
+        "open_pulls": None
     }
 ]
 accepted_entries = [
@@ -92,7 +95,8 @@ app.layout = html.Div(children=[
             # filter_action="native",
             # sort_action="native",
             hidden_columns=["issue_number", "reports_generated", "review_status", "location", "payer"],
-            style_table={'overflowX': 'auto'}
+            style_table={'overflowX': 'auto'},
+            include_headers_on_copy_paste=True
         ),
         html.Div([
             dbc.Button(children="Select All", id="select-all-button", n_clicks=0, color="primary"),
@@ -225,7 +229,6 @@ def update_output_div(selected_cell, page_current):
     entry_df["coords"] = entry_df["location"].apply(lambda x: h3.h3_to_geo(x))
     entry_df["lat"] = entry_df["coords"].apply(lambda x: x[0])
     entry_df["lon"] = entry_df["coords"].apply(lambda x: x[1])
-
 
     map_fig = px.scatter_mapbox(entry_df, lat="lat", lon="lon", color="owner", hover_name="name")
     map_fig.update_layout(transition_duration=500, showlegend=False)

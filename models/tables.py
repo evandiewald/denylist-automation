@@ -1,11 +1,11 @@
 from sqlalchemy.orm import declarative_base
-from sqlalchemy import Column, Text, BigInteger, Float, Integer, Boolean, ForeignKey, Enum, TIMESTAMP, ARRAY
+from sqlalchemy import Column, Text, MetaData, Integer, Boolean, ForeignKey, Enum, TIMESTAMP, ARRAY
 from sqlalchemy.dialects.postgresql import JSON
 import enum
 import os
 
 
-Base = declarative_base(bind=os.getenv("POSTGRES_CONNECTION_STR"))
+Base = declarative_base(bind=os.getenv("POSTGRES_CONNECTION_STR"), metadata=MetaData(schema=os.getenv("DENYLIST_DB_SCHEMA")))
 
 
 class issue_type(enum.Enum):
@@ -59,5 +59,24 @@ class Issues(Base):
     comments = Column(Integer)
     body = Column(Text)
     reactions = Column(JSON)
-    reports_generated = Column(Boolean)
+    reports_generated = Column(Boolean, nullable=True)
 
+
+class Pulls(Base):
+    __tablename__ = "pulls"
+
+    number = Column(Integer, primary_key=True)
+    title = Column(Text)
+    user = Column(Text)
+    state = Column(Enum(state_type))
+    created_at = Column(TIMESTAMP)
+    updated_at = Column(TIMESTAMP)
+    closed_at = Column(TIMESTAMP)
+    body = Column(Text)
+
+
+class PullIssues(Base):
+    __tablename__ = "pull_issues"
+
+    pull = Column(Integer, ForeignKey("pulls.number"), primary_key=True)
+    issue = Column(Integer, ForeignKey("issues.number"), primary_key=True)

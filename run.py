@@ -1,6 +1,6 @@
 import datetime
 
-from api import get_issues, get_entries
+from api import get_issues, get_entries, get_pulls
 import connection
 from sqlalchemy.engine import create_engine, Engine
 from models.migrations import migrate
@@ -16,7 +16,7 @@ session = boto3.Session(
     profile_name="default"
 )
 
-MIGRATE = True
+MIGRATE = False
 logging.basicConfig(level=logging.INFO)
 
 load_dotenv()
@@ -53,6 +53,31 @@ def get_new_issues(etl_engine: Engine, denylist_engine: Engine):
     insert_records(denylist_engine, issues, entries)
 
 
+def update_issues(denylist_engine: Engine):
+    logging.info(f"Checking for updates in denylist issues")
+    logging.info("Getting issues from Github API")
+    issues = get_issues(since=None)
+
+    upsert_issues(denylist_engine, issues)
+
+
+def update_entries(etl_engine: Engine, denylist_engine: Engine):
+    logging.info("Getting gateway_inventory from ETL")
+    gateway_inventory = get_gateway_inventory(etl_engine)
+    logging.info("Looking for unparsed issues to process for entries")
+    unparsed_issues = get_unparsed_issues(denylist_engine)
+    logging.info("Parsing issues for individual hotspot entries")
+    entries = get_entries(unparsed_issues, gateway_inventory)
+
+    upsert_entries(denylist_engine, entries)
+
+
+def update_pulls(denylist_engine: Engine):
+    logging.info("Checking for new or updated PR's")
+    pulls, issue_joins = get_pulls()
+    upsert_pulls(denylist_engine, pulls, issue_joins)
+
+
 def generate_reports(etl_engine: Engine, denylist_engine: Engine):
     since = datetime.datetime.now() - datetime.timedelta(days=14)
     pending_issues = get_issues_without_reports(denylist_engine, since.date().isoformat())
@@ -83,5 +108,7 @@ def generate_reports(etl_engine: Engine, denylist_engine: Engine):
         mark_issue_report_as_complete(denylist_engine, issue)
 
 
-get_new_issues(etl_engine, denylist_engine)
+update_issues(denylist_engine)
+update_entries(etl_engine, denylist_engine)
+update_pulls(denylist_engine)
 generate_reports(etl_engine, denylist_engine)

@@ -3,6 +3,8 @@ from models.tables import *
 from models.views import *
 from sqlalchemy.engine import create_engine
 from dotenv import load_dotenv
+from typing import Optional
+from sqlalchemy import MetaData
 
 
 def migrate():
