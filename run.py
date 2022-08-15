@@ -1,5 +1,7 @@
 import datetime
 
+import sqlalchemy.exc
+
 from api import get_issues, get_entries, get_pulls
 import connection
 from sqlalchemy.engine import create_engine, Engine
@@ -89,22 +91,25 @@ def generate_reports(etl_engine: Engine, denylist_engine: Engine):
         max_block = get_height_for_timestamp(etl_engine, issue_details["created_at"])
         upload_dict(bucket, issue_details, f"issues/{issue}/issue_details")
         for address in addresses:
-            logging.info(f"Processing address {address} in issue {issue}")
-            # get json datasets
-            distance_vs_rssi = get_distance_vs_rssi(etl_engine, address, max_block=max_block)
-            witnessed_makers = get_witnessed_makers(etl_engine, address, max_block=max_block)
-            hotspot_details = get_hotspot_details(etl_engine, address)
-            witness_graph = get_witness_graph(etl_engine, address, max_block=max_block)
-            rssi_vs_snr = get_rssi_vs_snr(etl_engine, address, max_block=max_block)
+            try:
+                logging.info(f"Processing address {address} in issue {issue}")
+                # get json datasets
+                distance_vs_rssi = get_distance_vs_rssi(etl_engine, address, max_block=max_block)
+                witnessed_makers = get_witnessed_makers(etl_engine, address, max_block=max_block)
+                hotspot_details = get_hotspot_details(etl_engine, address)
+                witness_graph = get_witness_graph(etl_engine, address, max_block=max_block)
+                rssi_vs_snr = get_rssi_vs_snr(etl_engine, address, max_block=max_block)
 
-            # upload to S3
-            upload_dict(bucket, distance_vs_rssi, f"issues/{issue}/entries/{address}/distance_vs_rssi")
-            upload_dict(bucket, witnessed_makers, f"issues/{issue}/entries/{address}/witnessed_makers")
-            upload_dict(bucket, hotspot_details, f"issues/{issue}/entries/{address}/hotspot_details")
-            upload_dict(bucket, witness_graph, f"issues/{issue}/entries/{address}/witness_graph")
-            upload_dict(bucket, rssi_vs_snr, f"issues/{issue}/entries/{address}/rssi_vs_snr")
+                # upload to S3
+                upload_dict(bucket, distance_vs_rssi, f"issues/{issue}/entries/{address}/distance_vs_rssi")
+                upload_dict(bucket, witnessed_makers, f"issues/{issue}/entries/{address}/witnessed_makers")
+                upload_dict(bucket, hotspot_details, f"issues/{issue}/entries/{address}/hotspot_details")
+                upload_dict(bucket, witness_graph, f"issues/{issue}/entries/{address}/witness_graph")
+                upload_dict(bucket, rssi_vs_snr, f"issues/{issue}/entries/{address}/rssi_vs_snr")
 
-            mark_entry_report_as_complete(denylist_engine, address, issue)
+                mark_entry_report_as_complete(denylist_engine, address, issue)
+            except sqlalchemy.exc.NoResultFound:
+                continue
         mark_issue_report_as_complete(denylist_engine, issue)
 
 
