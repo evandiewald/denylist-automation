@@ -104,7 +104,7 @@ def get_entries_table(denylist_engine: Engine, issue_number: Optional[int] = Non
 	(select array_agg(p.number) from pulls p join pull_issues pi on pi.pull = p.number join entries e2 on e2.issue_number = pi.issue where e2.address = e.address and p.state = 'open') as open_pulls
 
     
-    from entries e {f'where e.issue_number = {issue_number}' if issue_number else ''};"""
+    from entries e where e.reports_generated = true {f'and e.issue_number = {issue_number}' if issue_number else ''};"""
     with Session(denylist_engine) as session:
         res = session.execute(sql).fetchall()
 

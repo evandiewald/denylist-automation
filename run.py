@@ -14,6 +14,9 @@ from aws import upload_dict
 import boto3
 
 
+# how far back (in days) should we go when generating reports? on successive passes, only new entries will be processed
+N_DAYS = 90
+
 session = boto3.Session(
     profile_name="default"
 )
@@ -24,7 +27,7 @@ logging.basicConfig(level=logging.INFO)
 load_dotenv()
 
 etl_engine = connection.connect()
-denylist_engine = create_engine(os.getenv("DENYLIST_DB_CONNECTION_STRING"))
+denylist_engine = create_engine(os.getenv("DENYLIST_DB_CONNECTION_STRING"), pool_recycle=3600)
 
 s3 = session.resource("s3")
 bucket = s3.Bucket(os.getenv('S3_BUCKET'))
@@ -81,7 +84,7 @@ def update_pulls(denylist_engine: Engine):
 
 
 def generate_reports(etl_engine: Engine, denylist_engine: Engine):
-    since = datetime.datetime.now() - datetime.timedelta(days=14)
+    since = datetime.datetime.now() - datetime.timedelta(days=N_DAYS)
     pending_issues = get_issues_without_reports(denylist_engine, since.date().isoformat())
 
     for issue in pending_issues:
